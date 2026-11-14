@@ -8,19 +8,47 @@
 #   ./install.sh --uninstall <plat>    Remove links for <plat>
 #   ./install.sh --help
 #
+# When run from a file inside a checkout, that checkout is used as-is (no
+# clone, no pull). Curl-pipe installs still clone to $HOME/.understand-anything/repo.
+#
 # Curl-pipe usage:
 #   curl -fsSL https://raw.githubusercontent.com/Egonex-AI/Understand-Anything/main/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/Egonex-AI/Understand-Anything/main/install.sh | bash -s codex
 #
 # Environment:
 #   UA_REPO_URL  Override clone URL (default: official GitHub repo)
-#   UA_DIR       Override clone destination (default: $HOME/.understand-anything/repo)
+#   UA_DIR       Override checkout dir (default: local checkout, else
+#                $HOME/.understand-anything/repo)
 
 set -euo pipefail
 
+# Detect whether this script was launched from a real file (curl | bash has no
+# BASH_SOURCE) that sits in a complete checkout. In that case skills can be
+# linked straight from the local sources without cloning a second copy.
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || SCRIPT_DIR=""
+fi
+
+LOCAL_REPO=""
+if [[ -n "$SCRIPT_DIR" && -d "$SCRIPT_DIR/.git" && -f "$SCRIPT_DIR/install.sh" \
+      && -d "$SCRIPT_DIR/understand-anything-plugin/skills" ]]; then
+  LOCAL_REPO="$SCRIPT_DIR"
+fi
+
 REPO_URL="${UA_REPO_URL:-https://github.com/Egonex-AI/Understand-Anything.git}"
-REPO_DIR="${UA_DIR:-$HOME/.understand-anything/repo}"
 PLUGIN_LINK="$HOME/.understand-anything-plugin"
+
+# UA_DIR wins; otherwise prefer the local checkout, then the standalone cache.
+if [[ -n "${UA_DIR:-}" ]]; then
+  REPO_DIR="$UA_DIR"
+elif [[ -n "$LOCAL_REPO" ]]; then
+  REPO_DIR="$LOCAL_REPO"
+else
+  REPO_DIR="$HOME/.understand-anything/repo"
+fi
+
+use_local_checkout() { [[ -n "$LOCAL_REPO" && "$REPO_DIR" == "$LOCAL_REPO" ]]; }
 
 # Platform table — id|skills-target-dir|style
 # style "per-skill": one symlink per skill into the target dir
@@ -93,6 +121,10 @@ prompt_platform() {
 }
 
 clone_or_update() {
+  if use_local_checkout; then
+    printf -- '→ Using local checkout at %s (no clone, no pull)\n' "$REPO_DIR"
+    return 0
+  fi
   if [[ -d "$REPO_DIR/.git" ]]; then
     printf -- '→ Updating existing checkout at %s\n' "$REPO_DIR"
     git -C "$REPO_DIR" pull --ff-only
@@ -172,11 +204,21 @@ unlink_skills() {
 }
 
 link_plugin_root() {
-  if [[ -L "$PLUGIN_LINK" || -e "$PLUGIN_LINK" ]]; then
-    printf '  • %s already exists, leaving as-is\n' "$PLUGIN_LINK"
+  local src="$REPO_DIR/understand-anything-plugin"
+  if [[ -L "$PLUGIN_LINK" ]]; then
+    local current
+    current="$(readlink "$PLUGIN_LINK")"
+    if [[ "$current" == "$src" ]]; then
+      printf '  • %s already points here, leaving as-is\n' "$PLUGIN_LINK"
+    else
+      ln -sfn "$src" "$PLUGIN_LINK"
+      printf '  ✓ %s → %s (repointed from %s)\n' "$PLUGIN_LINK" "$src" "$current"
+    fi
+  elif [[ -e "$PLUGIN_LINK" ]]; then
+    printf '  • %s already exists (not a symlink), leaving as-is\n' "$PLUGIN_LINK"
   else
-    ln -s "$REPO_DIR/understand-anything-plugin" "$PLUGIN_LINK"
-    printf '  ✓ %s → %s\n' "$PLUGIN_LINK" "$REPO_DIR/understand-anything-plugin"
+    ln -s "$src" "$PLUGIN_LINK"
+    printf '  ✓ %s → %s\n' "$PLUGIN_LINK" "$src"
   fi
 }
 
@@ -253,7 +295,9 @@ cmd_uninstall() {
     rm -f "$PLUGIN_LINK"
     printf '  ✓ removed %s\n' "$PLUGIN_LINK"
   fi
-  if [[ -d "$REPO_DIR" ]]; then
+  if use_local_checkout; then
+    printf '\nYour local checkout at %s was kept untouched.\n' "$REPO_DIR"
+  elif [[ -d "$REPO_DIR" ]]; then
     printf '\nThe checkout at %s was kept (other platforms may still use it).\n' "$REPO_DIR"
     printf 'To remove it: rm -rf "%s"\n' "$REPO_DIR"
   fi
@@ -278,12 +322,19 @@ Usage:
   install.sh --uninstall <platform>  Remove links for <platform>
   install.sh --help
 
+Run from inside a checkout to use it directly: no clone, no pull, no network,
+and local edits take effect immediately. Use --update to pull it explicitly.
+Otherwise the repo is cloned to \$HOME/.understand-anything/repo.
+
+Checkout in use: $REPO_DIR
+
 Supported platforms:
 $(platform_ids | sed 's/^/  - /')
 
 Environment:
   UA_REPO_URL  Override clone URL (default: official repo)
-  UA_DIR       Override clone destination (default: \$HOME/.understand-anything/repo)
+  UA_DIR       Override checkout dir (default: local checkout, else
+               \$HOME/.understand-anything/repo)
 USAGE
 }
 

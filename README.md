@@ -207,7 +207,18 @@ curl -fsSL https://raw.githubusercontent.com/Egonex-AI/Understand-Anything/main/
 iwr -useb https://raw.githubusercontent.com/Egonex-AI/Understand-Anything/main/install.ps1 | iex
 ```
 
-The installer clones the repo to `~/.understand-anything/repo` and creates the right symlinks for the chosen platform. Restart your CLI/IDE afterwards.
+By default the installer clones the repo to `~/.understand-anything/repo` and creates the right symlinks for the chosen platform.
+
+**Already have a checkout?** On macOS / Linux, run the installer from inside it and it uses that checkout as-is — no clone, no `git pull`, no network, and local edits (such as a newly added platform) take effect immediately:
+
+```bash
+cd /path/to/Understand-Anything
+./install.sh codex
+```
+
+`~/.understand-anything-plugin` is repointed to the local checkout if it previously pointed elsewhere. Use `./install.sh --update` to pull that checkout explicitly, or set `UA_DIR` to force the standalone clone path instead.
+
+Restart your CLI/IDE afterwards.
 
 > **Note on invoking skills:** the invocation prefix differs per platform. Most platforms use slash commands (`/understand`), but **Codex uses `$` instead** — type `$understand`, not `/understand`. If neither prefix is recognized on your platform, just ask in plain language: *"Use the understand skill to analyze this project."*
 
