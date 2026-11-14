@@ -3,7 +3,8 @@
   Understand-Anything installer for Windows (PowerShell).
 
 .DESCRIPTION
-  Clones the repo and creates skill symlinks/junctions for the chosen platform.
+  Clones the repo (or uses a local checkout when run from a file inside one)
+  and creates skill symlinks/junctions for the chosen platform.
 
 .EXAMPLE
   ./install.ps1                       # prompt for platform
@@ -22,9 +23,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# When launched from a real script file (iwr | iex has no $PSCommandPath) that
+# sits in a complete checkout, link skills straight from the local sources.
+$ScriptDir = ''
+if ($PSCommandPath) { $ScriptDir = Split-Path -Parent $PSCommandPath }
+$LocalRepo = ''
+if ($ScriptDir) {
+    $hasGit    = Test-Path (Join-Path $ScriptDir '.git')
+    $hasScript = Test-Path (Join-Path $ScriptDir 'install.ps1')
+    $hasSkills = Test-Path (Join-Path $ScriptDir 'understand-anything-plugin\skills')
+    if ($hasGit -and $hasScript -and $hasSkills) { $LocalRepo = $ScriptDir }
+}
+
 $RepoUrl    = if ($env:UA_REPO_URL) { $env:UA_REPO_URL } else { 'https://github.com/Egonex-AI/Understand-Anything.git' }
-$RepoDir    = if ($env:UA_DIR)      { $env:UA_DIR }      else { Join-Path $HOME '.understand-anything\repo' }
 $PluginLink = Join-Path $HOME '.understand-anything-plugin'
+
+# UA_DIR wins; otherwise prefer the local checkout, then the standalone cache.
+if ($env:UA_DIR)    { $RepoDir = $env:UA_DIR }
+elseif ($LocalRepo) { $RepoDir = $LocalRepo }
+else                { $RepoDir = Join-Path $HOME '.understand-anything\repo' }
+
+function Test-LocalCheckout { return ([bool]$LocalRepo -and ($RepoDir -eq $LocalRepo)) }
 
 # Platform table - Target = skills directory; Style = "per-skill" | "folder"
 $Platforms = [ordered]@{
@@ -56,12 +75,19 @@ Usage:
   install.ps1 -Uninstall <platform>       Remove links for <platform>
   install.ps1 -Help
 
+Run from inside a checkout to use it directly: no clone, no pull, no network,
+and local edits take effect immediately. Use -Update to pull it explicitly.
+Otherwise the repo is cloned to %USERPROFILE%\.understand-anything\repo.
+
+Checkout in use: $RepoDir
+
 Supported platforms:
 $($Platforms.Keys -join ', ')
 
 Environment:
   UA_REPO_URL   Override clone URL
-  UA_DIR        Override clone destination (default: %USERPROFILE%\.understand-anything\repo)
+  UA_DIR        Override checkout dir (default: local checkout, else
+                %USERPROFILE%\.understand-anything\repo)
 "@
 }
 
@@ -89,6 +115,10 @@ function Prompt-Platform {
 function Get-SkillsRoot { Join-Path $RepoDir 'understand-anything-plugin\skills' }
 
 function Clone-Or-Update {
+    if (Test-LocalCheckout) {
+        Write-Host "-> Using local checkout at $RepoDir (no clone, no pull)"
+        return
+    }
     if (Test-Path (Join-Path $RepoDir '.git')) {
         Write-Host "-> Updating existing checkout at $RepoDir"
         git -C $RepoDir pull --ff-only
@@ -187,10 +217,19 @@ function Unlink-Skills([string]$Target, [string]$Style) {
 }
 
 function Link-Plugin-Root {
-    if (Test-Path $PluginLink) {
-        Write-Host "  * $PluginLink already exists, leaving as-is"
+    $src = Join-Path $RepoDir 'understand-anything-plugin'
+    if (Test-IsReparse $PluginLink) {
+        $current = (Get-Item -LiteralPath $PluginLink -Force).Target
+        if ($current -eq $src) {
+            Write-Host "  * $PluginLink already points here, leaving as-is"
+        } else {
+            Remove-Reparse $PluginLink | Out-Null
+            New-Item -ItemType Junction -Path $PluginLink -Target $src | Out-Null
+            Write-Host "  OK $PluginLink -> $src (repointed from $current)"
+        }
+    } elseif (Test-Path $PluginLink) {
+        Write-Host "  * $PluginLink already exists (not a junction), leaving as-is"
     } else {
-        $src = Join-Path $RepoDir 'understand-anything-plugin'
         New-Item -ItemType Junction -Path $PluginLink -Target $src | Out-Null
         Write-Host "  OK $PluginLink -> $src"
     }
@@ -263,7 +302,9 @@ function Cmd-Uninstall([string]$Id) {
     if (Remove-Reparse $PluginLink) {
         Write-Host "  OK removed $PluginLink"
     }
-    if (Test-Path $RepoDir) {
+    if (Test-LocalCheckout) {
+        Write-Host "`nYour local checkout at $RepoDir was kept untouched."
+    } elseif (Test-Path $RepoDir) {
         Write-Host "`nThe checkout at $RepoDir was kept (other platforms may still use it)."
         Write-Host "To remove it: Remove-Item -Recurse -Force '$RepoDir'"
     }

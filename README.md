@@ -209,14 +209,19 @@ iwr -useb https://raw.githubusercontent.com/Egonex-AI/Understand-Anything/main/i
 
 By default the installer clones the repo to `~/.understand-anything/repo` and creates the right symlinks for the chosen platform.
 
-**Already have a checkout?** On macOS / Linux, run the installer from inside it and it uses that checkout as-is — no clone, no `git pull`, no network, and local edits (such as a newly added platform) take effect immediately:
+**Already have a checkout?** Run the installer from inside it and it uses that checkout as-is — no clone, no `git pull`, no network, and local edits (such as a newly added platform) take effect immediately:
 
 ```bash
 cd /path/to/Understand-Anything
 ./install.sh codex
 ```
 
-`~/.understand-anything-plugin` is repointed to the local checkout if it previously pointed elsewhere. Use `./install.sh --update` to pull that checkout explicitly, or set `UA_DIR` to force the standalone clone path instead.
+```powershell
+cd C:\path\to\Understand-Anything
+.\install.ps1 codex
+```
+
+`~/.understand-anything-plugin` is repointed to the local checkout if it previously pointed elsewhere. Use `./install.sh --update` (or `./install.ps1 -Update` on Windows) to pull that checkout explicitly, or set `UA_DIR` to force the standalone clone path instead.
 
 Restart your CLI/IDE afterwards.
 
